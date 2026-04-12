@@ -4,64 +4,54 @@ const supabase = require('../config/supabaseClient');
 
 const analyzeReport = async (req, res, next) => {
     try {
-        const { user_id } = req.body; // Assume user_id is passed
+        const { user_id } = req.body;
 
-        // 1. Upload logic (already handled by multer in memory)
         if (!req.file) {
             return res.status(400).json({ success: false, message: 'No file uploaded' });
         }
 
-        // Ideally, check cache here if we had a report_id or calculated a hash
-        // For simplicity, we proceed to OCR
-        
-        // 2. OCR Extraction
+        console.log("Starting OCR with Tesseract...");
         const { data: { text } } = await Tesseract.recognize(
             req.file.buffer,
             'eng',
-            { logger: m => console.log(m) } // Optional: log progress
+            { logger: m => console.log(m.status + ': ' + m.progress) }
         );
 
-        if (!text) {
-             return res.status(400).json({ success: false, message: 'Could not extract text from document.' });
+        if (!text || text.trim().length < 10) {
+             return res.status(400).json({ success: false, message: 'Could not extract sufficient text from document.' });
         }
 
-        console.log("OCR Extracted Text Preview:", text.substring(0, 100));
-
-        // 3. Extract key values via Gemini
+        console.log("Analyzing with Gemini...");
         const parsedData = await geminiService.analyzeReportData(text);
 
-        // 4. Store cleaned data in DB
-        const insertPayload = {
-            hb: parsedData.hb,
-            vitamin_d: parsedData.vitamin_d,
-            iron: parsedData.iron,
-            deficiencies: parsedData.deficiencies,
-            ai_analysis: parsedData.ai_analysis
-        };
-
+        // Attempt to store in Supabase if user_id is provided
         if (user_id) {
-             insertPayload.user_id = user_id;
-        }
-
-        const { data, error } = await supabase
-            .from('reports')
-            .insert([insertPayload])
-            .select();
-
-        if (error) {
-            console.error('Supabase Error:', error);
-            // Since User hasn't set up the DB yet potentially (RLS or tables might not exist), 
-            // We just warn and return the analysis anyway so the frontend can work immediately 
+            try {
+                const { error } = await supabase
+                    .from('reports')
+                    .insert([{
+                        user_id: user_id,
+                        hb: parsedData.markers.find(m => m.key === 'hb')?.value?.toString(),
+                        vitamin_d: parsedData.markers.find(m => m.key === 'vitamin_d')?.value?.toString(),
+                        iron: parsedData.markers.find(m => m.key === 'iron')?.value?.toString(),
+                        ai_analysis: parsedData.ai_analysis,
+                        raw_data: parsedData // Storing the full JSON for future use
+                    }]);
+                
+                if (error) console.warn('Supabase Insert Warning:', error.message);
+            } catch (dbErr) {
+                console.warn('Database connection failed, proceeding with response anyway.');
+            }
         }
 
         res.status(200).json({
             success: true,
-            data: parsedData,
-            db_record: data ? data[0] : null
+            data: parsedData
         });
 
     } catch (err) {
-        next(err);
+        console.error("Report Analysis Controller Error:", err);
+        res.status(500).json({ success: false, message: err.message });
     }
 };
 

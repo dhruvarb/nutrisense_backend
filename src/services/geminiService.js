@@ -1,22 +1,52 @@
-require('dotenv').config(); // Note: The user uses GenAI standard package or the newer `@google/genai`. Let's assume standard since it was an alternate in the npm command. Wait, I installed `@google/generative-ai`, not `@google/genai`. Let me fix imports.
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" }); // Fast and cheap for simple extracts and chat
+const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
 
+/**
+ * Analyzes OCR text from a blood report to extract key nutritional markers.
+ * Identifies missing markers to enable the frontend to ask the user.
+ */
 async function analyzeReportData(extractedText) {
     const prompt = `
-    You are a medical data extraction assistant. I will provide you with OCR text extracted from a blood report.
-    Please extract the exact values for hemoglobin, vitamin_d, and iron.
-    Additionally, please provide a short string naming any deficiencies found based on standard ranges, 
-    and a simple "ai_analysis" paragraph explaining what this means for the patient and dietary recommendations.
+    You are an expert medical data extraction assistant. I will provide OCR text from a blood report.
     
-    Respond STRICTLY in valid JSON format only, matching this structure exactly:
+    1. Extract values for these specific markers if present: 
+       Hemoglobin (hb), Vitamin D (vitamin_d), Vitamin B12 (b12), Iron (iron), Ferritin (ferritin), Zinc (zinc), Magnesium (magnesium), Calcium (calcium).
+    
+    2. For EACH marker, return:
+       - "value": the numeric value found (or null if not found)
+       - "unit": the unit found (e.g., 'ng/mL', 'g/dL')
+       - "min_normal": the minimum normal value for this marker (number)
+       - "max_normal": the maximum normal value for this marker (number)
+       - "status": 'normal', 'moderate', or 'critical' based on standard healthy ranges.
+       - "recommendation": A very short (1 sentence) specific action based on the value.
+
+    3. Identify "missing_markers": 
+       Provide an array of strings naming which of the markers listed above were NOT found in the OCR text.
+
+    4. Calculate an "overall_score" (0-100) based on the markers found.
+    
+    5. Provide "ai_analysis": A paragraph summarizing the overall health and nutrition actionable insights.
+
+    Respond STRICTLY in valid JSON format matching this structure:
     {
-        "hb": "string describing hemoglobin value (e.g., '12.5 g/dL') or 'Not Found'",
-        "vitamin_d": "string describing vitamin d value or 'Not Found'",
-        "iron": "string describing iron value or 'Not Found'",
-        "deficiencies": "string describing any deficiencies based on values",
+        "overall_score": number,
+        "markers": [
+            { 
+                "name": "Hemoglobin", 
+                "key": "hb", 
+                "value": number, 
+                "unit": "string", 
+                "min_normal": number,
+                "max_normal": number,
+                "level": "string", 
+                "recommendation": "string" 
+            },
+            ... (only include those found)
+        ],
+        "missing_markers": ["name1", "name2"],
+        "daily_suggestions": ["string", "string", "string"],
         "ai_analysis": "string"
     }
 
@@ -24,21 +54,20 @@ async function analyzeReportData(extractedText) {
     ${extractedText}
     `;
     
-    // We expect JSON back
-    const response = await model.generateContent({
-      contents: [{ role: 'user', parts: [{ text: prompt }] }]
-    });
-
     try {
-        let textMatch = response.response.text();
-        // Extract json manually in case it brings markdown ticks
+        const result = await model.generateContent(prompt);
+        let textMatch = result.response.text();
+        
+        // Clean JSON formatting
         if (textMatch.includes('```json')) {
             textMatch = textMatch.replace(/```json/g, '').replace(/```/g, '');
         }
-        return JSON.parse(textMatch.trim());
+        
+        const data = JSON.parse(textMatch.trim());
+        return data;
     } catch (error) {
-        console.error("Gemini Parse Error:", error);
-        throw new Error("Failed to parse Gemini response into expected JSON.");
+        console.error("Gemini Analysis Error:", error);
+        throw new Error("Failed to extract medical data correctly.");
     }
 }
 
@@ -49,49 +78,42 @@ async function analyzeMealImage(mimeType, base64Image) {
     Return STRICTLY valid JSON ONLY:
     {
         "food_name": "Name of the meal/food",
-        "calories": "Estimated total calories as a number",
-        "protein": "Estimated total protein in grams as a number"
+        "calories": number,
+        "protein": number
     }
     `;
 
-    const response = await model.generateContent({
-        contents: [
-            {
-                role: 'user',
-                parts: [
-                    {
-                        inlineData: {
-                            data: base64Image,
-                            mimeType: mimeType
-                        }
-                    },
-                    { text: prompt }
-                ]
-            }
-        ]
-    });
-
     try {
+        const response = await model.generateContent({
+            contents: [
+                {
+                    role: 'user',
+                    parts: [
+                        { inlineData: { data: base64Image, mimeType: mimeType } },
+                        { text: prompt }
+                    ]
+                }
+            ]
+        });
+
         let textMatch = response.response.text();
         if (textMatch.includes('```json')) {
             textMatch = textMatch.replace(/```json/g, '').replace(/```/g, '');
         }
         return JSON.parse(textMatch.trim());
     } catch (error) {
-        console.error("Gemini Meal Parse Error:", error);
-        throw new Error("Failed to parse meal analysis.");
+        console.error("Gemini Meal Analysis Error:", error);
+        throw new Error("Failed to analyze meal.");
     }
 }
 
 async function chatWithAssistant(userMessage, healthContext) {
     const prompt = `
     You are NutriSense AI, a helpful nutritional assistant.
-    Here is the user's health context (if any):
-    ${JSON.stringify(healthContext)}
+    User Health Context: ${JSON.stringify(healthContext)}
+    User Message: ${userMessage}
     
-    User message: ${userMessage}
-    
-    Provide helpful, supportive, and medically safe dietary advice.
+    Provide helpful, supportive, and medically safe dietary advice. Keep it concise.
     `;
     
     const response = await model.generateContent(prompt);
