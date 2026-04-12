@@ -1,13 +1,15 @@
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 
-const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || "AI_KEY_MISSING");
 const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
 
 /**
  * Analyzes a blood report IMAGE directly using Gemini Multimodal Vision.
- * This replaces Tesseract OCR for better accuracy and much lower memory usage.
  */
 async function analyzeReportImage(mimeType, base64Image) {
+    if (!process.env.GEMINI_API_KEY) {
+        throw new Error("GEMINI_API_KEY is not set on the server environment.");
+    }
     const prompt = `
     You are an expert medical data extraction assistant. I have provided an image of a blood report.
     
