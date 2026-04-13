@@ -4,12 +4,30 @@ const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || "AI_KEY_MISSI
 const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
 
 /**
+ * Validates and sanitizes MIME types for Gemini multimodal input.
+ * Gemini 1.5 Flash supports: image/png, image/jpeg, image/webp, image/heic, image/heif, application/pdf.
+ */
+function sanitizeMimeType(mimeType) {
+    const validTypes = ['image/png', 'image/jpeg', 'image/webp', 'image/heic', 'image/heif', 'application/pdf'];
+    if (validTypes.includes(mimeType)) return mimeType;
+    
+    // Default to image/jpeg if it's a generic application/octet-stream but we suspect it's an image.
+    if (mimeType === 'application/octet-stream' || !mimeType) {
+        return 'image/jpeg';
+    }
+    return mimeType;
+}
+
+/**
  * Analyzes a blood report IMAGE directly using Gemini Multimodal Vision.
  */
 async function analyzeReportImage(mimeType, base64Image) {
     if (!process.env.GEMINI_API_KEY) {
         throw new Error("GEMINI_API_KEY is not set on the server environment.");
     }
+
+    const safeMimeType = sanitizeMimeType(mimeType);
+
     const prompt = `
     You are an expert medical data extraction assistant. I have provided an image of a blood report.
     
@@ -59,7 +77,7 @@ async function analyzeReportImage(mimeType, base64Image) {
                 {
                     role: 'user',
                     parts: [
-                        { inlineData: { data: base64Image, mimeType: mimeType } },
+                        { inlineData: { data: base64Image, mimeType: safeMimeType } },
                         { text: prompt }
                     ]
                 }
@@ -74,7 +92,7 @@ async function analyzeReportImage(mimeType, base64Image) {
         return JSON.parse(textMatch.trim());
     } catch (error) {
         console.error("Gemini Report Vision Error:", error);
-        throw new Error("AI failed to read the report image. Please ensure it is clear.");
+        throw new Error(`AI Extraction Failed: ${error.message}`);
     }
 }
 
@@ -82,11 +100,7 @@ async function analyzeMealImage(mimeType, base64Image) {
     const prompt = `
     You are a nutritional assistant identifying food and estimating caloric/protein content.
     Return STRICTLY valid JSON ONLY:
-    {
-        "food_name": "Name",
-        "calories": number,
-        "protein": number
-    }
+    { "food_name": "Name", "calories": number, "protein": number }
     `;
 
     try {
@@ -95,7 +109,7 @@ async function analyzeMealImage(mimeType, base64Image) {
                 {
                     role: 'user',
                     parts: [
-                        { inlineData: { data: base64Image, mimeType: mimeType } },
+                        { inlineData: { data: base64Image, mimeType: sanitizeMimeType(mimeType) } },
                         { text: prompt }
                     ]
                 }
@@ -126,7 +140,7 @@ async function chatWithAssistant(userMessage, healthContext) {
 }
 
 module.exports = {
-    analyzeReportImage, // Export new method
+    analyzeReportImage,
     analyzeMealImage,
     chatWithAssistant
 };

@@ -6,16 +6,18 @@ const analyzeReport = async (req, res, next) => {
         const { user_id } = req.body;
 
         if (!req.file) {
+            console.error("No file found in request.");
             return res.status(400).json({ success: false, message: 'No file uploaded' });
         }
 
-        console.log("Analyzing report with Gemini Vision...");
+        console.log(`Analyzing report for UserID: ${user_id || 'Guest'}`);
+        console.log(`File: ${req.file.originalname}, Size: ${req.file.size} bytes, MIME: ${req.file.mimetype}`);
         
         // Convert buffer to base64 for Gemini
         const base64Image = req.file.buffer.toString('base64');
         const mimeType = req.file.mimetype;
 
-        // Direct Multimodal analysis (much lower memory than Tesseract)
+        // Direct Multimodal analysis
         const parsedData = await geminiService.analyzeReportImage(mimeType, base64Image);
 
         // Store result in Supabase if user_id is provided
@@ -44,11 +46,12 @@ const analyzeReport = async (req, res, next) => {
         });
 
     } catch (err) {
-        console.error("Report analysis controller error:", err);
-        // Avoid 500 crashes by sending a 400 with the AI error
+        console.error("ANALYSIS ERROR:", err);
+        // Specifically return the AI error or underlying crash message for remote debugging
         res.status(400).json({ 
             success: false, 
-            message: err.message || "Failed to analyze report image." 
+            message: err.message || "Unknown analysis error occurred." ,
+            debug: process.env.NODE_ENV === 'production' ? null : err.stack
         });
     }
 };
