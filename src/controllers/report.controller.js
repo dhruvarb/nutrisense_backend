@@ -3,7 +3,8 @@ const supabase = require('../config/supabaseClient');
 
 const analyzeReport = async (req, res, next) => {
     try {
-        const { user_id } = req.body;
+        const body = req.body || {};
+        const user_id = body.user_id;
 
         if (!req.file) {
             console.error("No file found in request.");
