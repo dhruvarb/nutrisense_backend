@@ -3,7 +3,7 @@ const supabase = require('../config/supabaseClient');
 
 const analyzeMeal = async (req, res, next) => {
     try {
-        const { user_id } = req.body;
+        const { user_id, diet_type } = req.body;
 
         if (!req.file) {
             return res.status(400).json({ success: false, message: 'No meal image uploaded' });
@@ -13,8 +13,8 @@ const analyzeMeal = async (req, res, next) => {
         const base64Image = req.file.buffer.toString('base64');
         const mimeType = req.file.mimetype;
 
-        // Call Gemini
-        const mealAnalysis = await geminiService.analyzeMealImage(mimeType, base64Image);
+        // Call Gemini with diet context
+        const mealAnalysis = await geminiService.analyzeMealImage(mimeType, base64Image, diet_type || 'not set');
 
         // Store result
         const insertPayload = {

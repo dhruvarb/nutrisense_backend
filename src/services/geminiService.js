@@ -21,7 +21,7 @@ function sanitizeMimeType(mimeType) {
 /**
  * Analyzes a blood report IMAGE directly using Gemini Multimodal Vision.
  */
-async function analyzeReportImage(mimeType, base64Image) {
+async function analyzeReportImage(mimeType, base64Image, dietType = 'not set') {
     if (!process.env.GEMINI_API_KEY) {
         throw new Error("GEMINI_API_KEY is not set on the server environment.");
     }
@@ -30,7 +30,8 @@ async function analyzeReportImage(mimeType, base64Image) {
 
     const prompt = `
     You are an expert medical data extraction assistant. I have provided an image of a blood report.
-    
+    The user's dietary preference is: ${dietType}.
+
     1. Extract values for these specific markers if present: 
        Hemoglobin (hb), Vitamin D (vitamin_d), Vitamin B12 (b12), Iron (iron), Ferritin (ferritin), Zinc (zinc), Magnesium (magnesium), Calcium (calcium).
     
@@ -41,6 +42,8 @@ async function analyzeReportImage(mimeType, base64Image) {
        - "max_normal": the maximum normal value (number)
        - "status": 'normal', 'moderate', or 'critical' 
        - "recommendation": A very short (1 sentence) specific action based on the value.
+         IMPORTANT: All recommendations MUST respect the user's dietary preference (${dietType}).
+         If the user is vegetarian/vegan, do NOT suggest meat, fish, or poultry. Suggest plant-based alternatives (e.g., lentils, spinach, fortified plant milks, seeds).
 
     3. Identify "missing_markers": 
        Provide an array of strings naming which of the markers listed above were NOT found in the image.
@@ -48,6 +51,10 @@ async function analyzeReportImage(mimeType, base64Image) {
     4. Calculate an "overall_score" (0-100) based on the markers found.
     
     5. Provide "ai_analysis": A paragraph summarizing results and actionable insights.
+       Again, ensure all dietary advice is STRICTLY ${dietType} compatible.
+
+    6. Provide "daily_suggestions": A list of 3-5 specific daily habits or foods to include.
+       CRITICAL: These MUST be ${dietType} compliant. No salmon/meat for vegetarians.
 
     Respond STRICTLY in valid JSON format matching this structure:
     {
@@ -96,11 +103,23 @@ async function analyzeReportImage(mimeType, base64Image) {
     }
 }
 
-async function analyzeMealImage(mimeType, base64Image) {
+async function analyzeMealImage(mimeType, base64Image, dietType = 'not set') {
     const prompt = `
     You are a nutritional assistant identifying food and estimating caloric/protein content.
+    The user's dietary preference is: ${dietType}.
+
+    1. Identify the food in the image.
+    2. Provide "clinical_advice" based on the detected food and the user's ${dietType} preference.
+       If the user is vegetarian/vegan and you detect meat/fish (like salmon), GENTLY remind them of their preference and suggest a vegetarian alternative (e.g., "I noticed you're eating salmon, but since you're vegetarian, next time you might try Grilled Tofu for a similar protein boost").
+    3. If the food IS compliant with ${dietType}, provide supportive advice.
+
     Return STRICTLY valid JSON ONLY:
-    { "food_name": "Name", "calories": number, "protein": number }
+    {
+        "food_name": "Name",
+        "calories": number,
+        "protein": number,
+        "clinical_advice": "string"
+    }
     `;
 
     try {

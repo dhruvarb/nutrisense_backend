@@ -5,21 +5,21 @@ const analyzeReport = async (req, res, next) => {
     try {
         const body = req.body || {};
         const user_id = body.user_id;
+        const diet_type = body.diet_type || 'not set';
 
         if (!req.file) {
             console.error("No file found in request.");
             return res.status(400).json({ success: false, message: 'No file uploaded' });
         }
 
-        console.log(`Analyzing report for UserID: ${user_id || 'Guest'}`);
-        console.log(`File: ${req.file.originalname}, Size: ${req.file.size} bytes, MIME: ${req.file.mimetype}`);
+        console.log(`Analyzing report for UserID: ${user_id || 'Guest'}, Diet: ${diet_type}`);
         
         // Convert buffer to base64 for Gemini
         const base64Image = req.file.buffer.toString('base64');
         const mimeType = req.file.mimetype;
 
-        // Direct Multimodal analysis
-        const parsedData = await geminiService.analyzeReportImage(mimeType, base64Image);
+        // Direct Multimodal analysis with diet context
+        const parsedData = await geminiService.analyzeReportImage(mimeType, base64Image, diet_type);
 
         // Store result in Supabase if user_id is provided
         if (user_id) {
