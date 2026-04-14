@@ -158,8 +158,53 @@ async function chatWithAssistant(userMessage, healthContext) {
     return response.response.text();
 }
 
+async function generateWeeklyPlan(healthContext) {
+    const prompt = `
+    You are an expert clinical nutritionist AI. Generate a 7-day personalized meal plan.
+    User Context: ${JSON.stringify(healthContext)}
+
+    CRITICAL REQUIREMENTS:
+    1. Respect Diet Type: If ${healthContext.diet_type} is "vegetarian" or "vegan", NO meat/fish/eggs (as applicable).
+    2. Target Deficiencies: If blood reports show low Vitamin D or Iron, include specific foods (e.g., fortified cereals, spinach, lentils).
+    3. Structure: Provide Breakfast, Lunch, Snack, and Dinner for each day.
+    4. Format: Return STRICTLY valid JSON ONLY.
+
+    Response Structure:
+    {
+      "weekly_plan": [
+        {
+          "day": "Monday",
+          "meals": {
+            "breakfast": { "menu": "string", "calories": number, "protein": "string", "target": "string (e.g. Iron boost)" },
+            "lunch": { "menu": "string", "calories": number, "protein": "string", "target": "string" },
+            "snack": { "menu": "string", "calories": number, "protein": "string", "target": "string" },
+            "dinner": { "menu": "string", "calories": number, "protein": "string", "target": "string" }
+          }
+        },
+        ... (repeat for 7 days)
+      ],
+      "prescribed_supplements": [
+        { "name": "string", "timing": "string" }
+      ]
+    }
+    `;
+
+    try {
+        const result = await model.generateContent(prompt);
+        let text = result.response.text();
+        if (text.includes('```json')) {
+            text = text.replace(/```json/g, '').replace(/```/g, '');
+        }
+        return JSON.parse(text.trim());
+    } catch (error) {
+        console.error("Plan Generation Error:", error);
+        throw new Error("Failed to generate plan.");
+    }
+}
+
 module.exports = {
     analyzeReportImage,
     analyzeMealImage,
-    chatWithAssistant
+    chatWithAssistant,
+    generateWeeklyPlan
 };

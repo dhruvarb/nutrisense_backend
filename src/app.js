@@ -10,6 +10,7 @@ const mealRoutes = require('./routes/meal.routes');
 const chatRoutes = require('./routes/chat.routes');
 const authRoutes = require('./routes/auth.routes');
 const userRoutes = require('./routes/user.routes');
+const planRoutes = require('./routes/plan.routes');
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -24,6 +25,7 @@ app.use('/api', mealRoutes);   // using /api/analyze-meal
 app.use('/api/chat', chatRoutes);
 app.use('/api/auth', authRoutes);
 app.use('/api/user', userRoutes);
+app.use('/api/plan', planRoutes);
 
 // Health check endpoint
 app.get('/health', (req, res) => {
