@@ -1,7 +1,35 @@
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 
+const geminiModelName = process.env.GEMINI_MODEL || "gemini-2.5-flash-lite";
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || "AI_KEY_MISSING");
-const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
+const model = genAI.getGenerativeModel({ model: geminiModelName });
+
+function ensureGeminiApiKey() {
+    if (!process.env.GEMINI_API_KEY) {
+        const error = new Error("GEMINI_API_KEY is not set on the server environment.");
+        error.statusCode = 500;
+        throw error;
+    }
+}
+
+function buildGeminiError(error, fallbackMessage) {
+    const rawMessage = error.message || fallbackMessage;
+    const isQuotaError = rawMessage.includes('[429 Too Many Requests]') ||
+        rawMessage.includes('Quota exceeded') ||
+        rawMessage.includes('Too Many Requests');
+
+    if (isQuotaError) {
+        const retryMatch = rawMessage.match(/retry in ([^.]+s)/i) || rawMessage.match(/"retryDelay":"([^"]+)"/i);
+        const retryText = retryMatch ? ` Please retry in about ${retryMatch[1]}.` : ' Please retry later.';
+        const quotaError = new Error(`Gemini quota exceeded for ${geminiModelName}.${retryText}`);
+        quotaError.statusCode = 429;
+        return quotaError;
+    }
+
+    const wrappedError = new Error(`${fallbackMessage}: ${rawMessage}`);
+    wrappedError.statusCode = error.statusCode || 500;
+    return wrappedError;
+}
 
 /**
  * Validates and sanitizes MIME types for Gemini multimodal input.
@@ -22,9 +50,7 @@ function sanitizeMimeType(mimeType) {
  * Analyzes a blood report IMAGE directly using Gemini Multimodal Vision.
  */
 async function analyzeReportImage(mimeType, base64Image, dietType = 'not set') {
-    if (!process.env.GEMINI_API_KEY) {
-        throw new Error("GEMINI_API_KEY is not set on the server environment.");
-    }
+    ensureGeminiApiKey();
 
     const safeMimeType = sanitizeMimeType(mimeType);
 
@@ -99,11 +125,13 @@ async function analyzeReportImage(mimeType, base64Image, dietType = 'not set') {
         return JSON.parse(textMatch.trim());
     } catch (error) {
         console.error("Gemini Report Vision Error:", error);
-        throw new Error(`AI Extraction Failed: ${error.message}`);
+        throw buildGeminiError(error, 'AI Extraction Failed');
     }
 }
 
 async function analyzeMealImage(mimeType, base64Image, dietType = 'not set') {
+    ensureGeminiApiKey();
+
     const prompt = `
     You are a nutritional assistant identifying food and estimating caloric/protein content.
     The user's dietary preference is: ${dietType}.
@@ -142,11 +170,13 @@ async function analyzeMealImage(mimeType, base64Image, dietType = 'not set') {
         return JSON.parse(textMatch.trim());
     } catch (error) {
         console.error("Gemini Meal Analysis Error:", error);
-        throw new Error("Failed to analyze meal.");
+        throw buildGeminiError(error, 'AI Meal Analysis Failed');
     }
 }
 
 async function chatWithAssistant(userMessage, healthContext) {
+    ensureGeminiApiKey();
+
     const prompt = `
     You are NutriSense AI, a helpful nutritional assistant.
     User Health Context: ${JSON.stringify(healthContext)}
@@ -154,11 +184,18 @@ async function chatWithAssistant(userMessage, healthContext) {
     Provide helpful, supportive advice.
     `;
     
-    const response = await model.generateContent(prompt);
-    return response.response.text();
+    try {
+        const response = await model.generateContent(prompt);
+        return response.response.text();
+    } catch (error) {
+        console.error("Gemini Chat Error:", error);
+        throw buildGeminiError(error, 'AI Chat Failed');
+    }
 }
 
 async function generateWeeklyPlan(healthContext) {
+    ensureGeminiApiKey();
+
     const prompt = `
     You are an expert clinical nutritionist AI. Generate a 7-day personalized meal plan.
     User Context: ${JSON.stringify(healthContext)}
@@ -198,7 +235,7 @@ async function generateWeeklyPlan(healthContext) {
         return JSON.parse(text.trim());
     } catch (error) {
         console.error("Plan Generation Error:", error);
-        throw new Error("Failed to generate plan.");
+        throw buildGeminiError(error, 'Failed to generate plan');
     }
 }
 

@@ -1,6 +1,7 @@
 const express = require('express');
 const cors = require('cors');
-require('dotenv').config();
+const path = require('path');
+require('dotenv').config({ path: path.resolve(__dirname, '../.env') });
 
 const errorHandler = require('./middleware/errorHandler');
 
@@ -11,6 +12,7 @@ const chatRoutes = require('./routes/chat.routes');
 const authRoutes = require('./routes/auth.routes');
 const userRoutes = require('./routes/user.routes');
 const planRoutes = require('./routes/plan.routes');
+const supabase = require('./config/supabaseClient');
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -30,6 +32,28 @@ app.use('/api/plan', planRoutes);
 // Health check endpoint
 app.get('/health', (req, res) => {
     res.status(200).json({ status: 'OK', message: 'NutriSense API is running' });
+});
+
+app.get('/health/supabase', async (req, res) => {
+    try {
+        const { error } = await supabase.from('users').select('id').limit(1);
+
+        if (error) {
+            return res.status(500).json({
+                status: 'ERROR',
+                message: error.message,
+                details: error.details,
+                hint: error.hint
+            });
+        }
+
+        res.status(200).json({ status: 'OK', message: 'Supabase connection is working' });
+    } catch (err) {
+        res.status(500).json({
+            status: 'ERROR',
+            message: err.message
+        });
+    }
 });
 
 // Global Error Handler

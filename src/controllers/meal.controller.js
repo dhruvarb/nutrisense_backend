@@ -27,19 +27,26 @@ const analyzeMeal = async (req, res, next) => {
             insertPayload.user_id = user_id;
         }
 
-        const { data, error } = await supabase
-            .from('meals')
-            .insert([insertPayload])
-            .select();
+        let savedMeal = null;
+        try {
+            const { data, error } = await supabase
+                .from('meals')
+                .insert([insertPayload])
+                .select();
 
-         if (error) {
-            console.error('Supabase Meal Insert Error:', error);
+            if (error) {
+                console.error('Supabase Meal Insert Error:', error);
+            } else {
+                savedMeal = data ? data[0] : null;
+            }
+        } catch (dbErr) {
+            console.error('Supabase Meal Save Failed:', dbErr.message);
         }
 
         res.status(200).json({
             success: true,
             data: mealAnalysis,
-            db_record: data ? data[0] : null
+            db_record: savedMeal
         });
 
     } catch (err) {
