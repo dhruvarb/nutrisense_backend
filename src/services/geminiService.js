@@ -47,16 +47,34 @@ function sanitizeMimeType(mimeType) {
 }
 
 /**
+ * Builds an absolute diet restriction rule string for Gemini prompts.
+ */
+function buildDietRule(dietType) {
+    const lower = (dietType || '').toLowerCase().trim();
+    if (lower.includes('vegan')) {
+        return 'ABSOLUTE DIET RULE: The user is VEGAN. You MUST NOT suggest or mention meat, poultry, fish, seafood, dairy (milk, cheese, yogurt, ghee, butter), eggs, or any animal product whatsoever. Only plant-based foods are allowed.';
+    }
+    if (lower.includes('vegetarian') || lower.includes('veg')) {
+        return 'ABSOLUTE DIET RULE: The user is VEGETARIAN. You MUST NOT suggest or mention meat, poultry, fish, or seafood. Dairy and eggs are allowed. Suggest foods like lentils, paneer, tofu, spinach, dairy, nuts, and seeds instead.';
+    }
+    if (lower.includes('keto')) {
+        return 'ABSOLUTE DIET RULE: The user follows a KETO diet. Suggestions must be low-carb and high-fat. Avoid grains, bread, rice, pasta, starchy vegetables, and sugar.';
+    }
+    return `The user\'s dietary preference is: ${dietType}. Respect this preference in all food suggestions.`;
+}
+
+/**
  * Analyzes a blood report IMAGE directly using Gemini Multimodal Vision.
  */
 async function analyzeReportImage(mimeType, base64Image, dietType = 'not set') {
     ensureGeminiApiKey();
 
     const safeMimeType = sanitizeMimeType(mimeType);
+    const dietRule = buildDietRule(dietType);
 
     const prompt = `
     You are an expert medical data extraction assistant. I have provided an image of a blood report.
-    The user's dietary preference is: ${dietType}.
+    ${dietRule}
 
     1. Extract values for these specific markers if present: 
        Hemoglobin (hb), Vitamin D (vitamin_d), Vitamin B12 (b12), Iron (iron), Ferritin (ferritin), Zinc (zinc), Magnesium (magnesium), Calcium (calcium).
@@ -68,8 +86,7 @@ async function analyzeReportImage(mimeType, base64Image, dietType = 'not set') {
        - "max_normal": the maximum normal value (number)
        - "status": 'normal', 'moderate', or 'critical' 
        - "recommendation": A very short (1 sentence) specific action based on the value.
-         IMPORTANT: All recommendations MUST respect the user's dietary preference (${dietType}).
-         If the user is vegetarian/vegan, do NOT suggest meat, fish, or poultry. Suggest plant-based alternatives (e.g., lentils, spinach, fortified plant milks, seeds).
+         This recommendation MUST strictly follow the diet rule stated above.
 
     3. Identify "missing_markers": 
        Provide an array of strings naming which of the markers listed above were NOT found in the image.
@@ -77,10 +94,10 @@ async function analyzeReportImage(mimeType, base64Image, dietType = 'not set') {
     4. Calculate an "overall_score" (0-100) based on the markers found.
     
     5. Provide "ai_analysis": A paragraph summarizing results and actionable insights.
-       Again, ensure all dietary advice is STRICTLY ${dietType} compatible.
+       This analysis MUST strictly follow the diet rule stated above.
 
     6. Provide "daily_suggestions": A list of 3-5 specific daily habits or foods to include.
-       CRITICAL: These MUST be ${dietType} compliant. No salmon/meat for vegetarians.
+       These suggestions MUST strictly follow the diet rule stated above. Violating the diet rule is not allowed.
 
     Respond STRICTLY in valid JSON format matching this structure:
     {
@@ -131,15 +148,17 @@ async function analyzeReportImage(mimeType, base64Image, dietType = 'not set') {
 
 async function analyzeMealImage(mimeType, base64Image, dietType = 'not set') {
     ensureGeminiApiKey();
+    const dietRule = buildDietRule(dietType);
 
     const prompt = `
     You are a nutritional assistant identifying food and estimating caloric/protein content.
-    The user's dietary preference is: ${dietType}.
+    ${dietRule}
 
     1. Identify the food in the image.
-    2. Provide "clinical_advice" based on the detected food and the user's ${dietType} preference.
-       If the user is vegetarian/vegan and you detect meat/fish (like salmon), GENTLY remind them of their preference and suggest a vegetarian alternative (e.g., "I noticed you're eating salmon, but since you're vegetarian, next time you might try Grilled Tofu for a similar protein boost").
-    3. If the food IS compliant with ${dietType}, provide supportive advice.
+    2. Check if the detected food violates the diet rule above.
+       - If the food violates the diet rule (e.g., a vegetarian user has meat), clearly point this out and suggest a compliant alternative.
+       - If the food is compliant, provide supportive nutritional advice.
+    3. The "clinical_advice" field must NEVER recommend a food that violates the diet rule above.
 
     Return STRICTLY valid JSON ONLY:
     {
@@ -196,15 +215,17 @@ async function chatWithAssistant(userMessage, healthContext) {
 async function generateWeeklyPlan(healthContext) {
     ensureGeminiApiKey();
 
+    const dietRule = buildDietRule(healthContext.diet_type);
     const prompt = `
     You are an expert clinical nutritionist AI. Generate a 7-day personalized meal plan.
     User Context: ${JSON.stringify(healthContext)}
 
     CRITICAL REQUIREMENTS:
-    1. Respect Diet Type: If ${healthContext.diet_type} is "vegetarian" or "vegan", NO meat/fish/eggs (as applicable).
-    2. Target Deficiencies: If blood reports show low Vitamin D or Iron, include specific foods (e.g., fortified cereals, spinach, lentils).
+    1. ${dietRule}
+    2. Target Deficiencies: If blood reports show low Vitamin D or Iron, include specific foods compliant with the diet rule above (e.g., fortified cereals, spinach, lentils for vegetarians).
     3. Structure: Provide Breakfast, Lunch, Snack, and Dinner for each day.
-    4. Format: Return STRICTLY valid JSON ONLY.
+    4. Every single meal MUST comply with the diet rule. Violations are not acceptable.
+    5. Format: Return STRICTLY valid JSON ONLY.
 
     Response Structure:
     {
